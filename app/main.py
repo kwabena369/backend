@@ -1,18 +1,22 @@
+# app/main.py
 import asyncio
 import websockets
+from fastapi import FastAPI, WebSocket
 
-async def audio_handler(websocket, path):
+app = FastAPI()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
     print("Client connected")
     try:
-        async for message in websocket:
-            print(f"Received audio data: {len(message)} bytes")  # Log received audio size
-    except websockets.exceptions.ConnectionClosed:
-        print("Client disconnected")
+        while True:
+            data = await websocket.receive_bytes()
+            print(f"Received audio data: {len(data)} bytes")
+    except Exception as e:
+        print(f"Client disconnected: {e}")
 
-async def start_server():
-    async with websockets.serve(audio_handler, "0.0.0.0", 8000):
-        print("WebSocket server started on ws://0.0.0.0:8000")
-        await asyncio.Future()  # Keep running indefinitely
-
+# This is needed for local development
 if __name__ == "__main__":
-    asyncio.run(start_server())  # Ensure it runs in a proper event loop
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
