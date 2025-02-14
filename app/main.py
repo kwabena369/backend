@@ -6,79 +6,98 @@ import os
 import urllib.request
 import zipfile
 from datetime import datetime
+import logging
+
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Function to download and setup model
 def setup_model():
     model_name = "vosk-model-small-en-us-0.15"
     model_path = f"{model_name}"
     
     if not os.path.exists(model_path):
-        print("Downloading model...")
-        # Create models directory
+        logger.info("Starting model download process...")
         os.makedirs(model_path, exist_ok=True)
         
-        # Download the model
         url = f"https://alphacephei.com/vosk/models/{model_name}.zip"
         zip_path = f"{model_name}.zip"
         
+        logger.info(f"Downloading model from {url}")
         urllib.request.urlretrieve(url, zip_path)
         
-        # Extract the model
-        print("Extracting model...")
+        logger.info("Extracting model files...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(".")
         
-        # Cleanup
         os.remove(zip_path)
-        print("Model setup complete!")
+        logger.info("Model setup completed successfully!")
+    else:
+        logger.info("Model already exists, skipping download")
     
     return model_path
 
 # Initialize model at startup
-print("Setting up Vosk model...")
+logger.info("Initializing Vosk model...")
 model_path = setup_model()
 model = Model(model_path)
 recognizer = KaldiRecognizer(model, 16000)
-print("Vosk model loaded successfully!")
+logger.info("Vosk model initialized successfully!")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("Client connected")
+    logger.info("New client connected to WebSocket")
+    
     try:
         while True:
-            # Receive the message as bytes or text
             try:
+                # Log received data size
                 data = await websocket.receive_bytes()
-                # Handle audio data
+                logger.debug(f"Received audio chunk of size: {len(data)} bytes")
+                
                 if recognizer.AcceptWaveform(data):
                     result = json.loads(recognizer.Result())
                     text = result.get("text", "")
-                    print(f"Transcribed text: {text}")
+                    
+                    if text:  # Only log if there's actual transcribed text
+                        logger.info(f"Transcribed text: {text}")
+                    else:
+                        logger.debug("No text transcribed from audio chunk")
+                    
                     await websocket.send_text(text)
+                    
             except Exception as e:
-                # If not bytes, try to receive as text (for date data)
                 try:
                     data = await websocket.receive_text()
-                    # Try to parse as JSON
+                    logger.debug(f"Received text data: {data}")
+                    
                     json_data = json.loads(data)
                     if 'date' in json_data:
-                        print(f"Received date from frontend: {json_data['date']}")
-                        # You can add additional date processing here
+                        logger.info(f"Received date from frontend: {json_data['date']}")
                         await websocket.send_text(f"Date received: {json_data['date']}")
+                    
                 except json.JSONDecodeError:
-                    print("Received invalid JSON data")
+                    logger.error("Failed to parse JSON data")
                 except Exception as e:
-                    print(f"Error processing text data: {e}")
+                    logger.error(f"Error processing text data: {str(e)}")
+                    
     except Exception as e:
-        print(f"Client disconnected: {e}")
+        logger.error(f"WebSocket connection error: {str(e)}")
+    finally:
+        logger.info("Client disconnected from WebSocket")
 
 @app.get("/")
 async def root():
+    logger.info("Health check endpoint accessed")
     return {"status": "ready", "message": "Speech recognition server is running"}
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting speech recognition server...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
