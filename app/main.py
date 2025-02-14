@@ -1,31 +1,28 @@
 import asyncio
-import signal
-from websockets import serve
+import websockets
 
 async def audio_handler(websocket, path):
     print("Client connected")
     try:
         async for message in websocket:
-            print(f"Received audio data: {len(message)} bytes")
+            print(f"Received audio data: {len(message)} bytes")  # Log received audio size
     except websockets.exceptions.ConnectionClosed:
         print("Client disconnected")
 
-async def health_check(path, request_headers):
-    if path == "/healthz":
-        return 200, [], b"OK\n"
+async def app(scope, receive, send):  # ASGI entry point
+    if scope["type"] == "lifespan":
+        return  # Handle lifespan events if needed
 
-async def main():
-    loop = asyncio.get_running_loop()
-    stop = loop.create_future()
-    loop.add_signal_handler(signal.SIGTERM, stop.set_result, None)
+    if scope["type"] == "websocket":
+        websocket = websockets.WebSocketServerProtocol()
+        await websocket.accept()
+        await audio_handler(websocket, None)
 
-    async with serve(
-        audio_handler,
-        host="",
-        port=8080,
-        process_request=health_check,
-    ):
-        await stop
+# Start WebSocket server in a separate task
+async def start_server():
+    server = await websockets.serve(audio_handler, "0.0.0.0", 8000)
+    print("WebSocket server started on ws://0.0.0.0:8000")
+    await server.wait_closed()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# Run the WebSocket server in the background
+asyncio.create_task(start_server())
