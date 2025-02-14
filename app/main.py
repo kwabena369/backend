@@ -1,4 +1,3 @@
-# app/main.py
 import asyncio
 from fastapi import FastAPI, WebSocket
 import json
@@ -6,6 +5,7 @@ from vosk import Model, KaldiRecognizer
 import os
 import urllib.request
 import zipfile
+from datetime import datetime
 
 app = FastAPI()
 
@@ -49,12 +49,29 @@ async def websocket_endpoint(websocket: WebSocket):
     print("Client connected")
     try:
         while True:
-            data = await websocket.receive_bytes()
-            if recognizer.AcceptWaveform(data):
-                result = json.loads(recognizer.Result())
-                text = result.get("text", "")
-                print(f"Transcribed text: {text}")
-                await websocket.send_text(text)
+            # Receive the message as bytes or text
+            try:
+                data = await websocket.receive_bytes()
+                # Handle audio data
+                if recognizer.AcceptWaveform(data):
+                    result = json.loads(recognizer.Result())
+                    text = result.get("text", "")
+                    print(f"Transcribed text: {text}")
+                    await websocket.send_text(text)
+            except Exception as e:
+                # If not bytes, try to receive as text (for date data)
+                try:
+                    data = await websocket.receive_text()
+                    # Try to parse as JSON
+                    json_data = json.loads(data)
+                    if 'date' in json_data:
+                        print(f"Received date from frontend: {json_data['date']}")
+                        # You can add additional date processing here
+                        await websocket.send_text(f"Date received: {json_data['date']}")
+                except json.JSONDecodeError:
+                    print("Received invalid JSON data")
+                except Exception as e:
+                    print(f"Error processing text data: {e}")
     except Exception as e:
         print(f"Client disconnected: {e}")
 
