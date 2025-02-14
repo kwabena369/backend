@@ -9,20 +9,23 @@ async def audio_handler(websocket, path):
     except websockets.exceptions.ConnectionClosed:
         print("Client disconnected")
 
-async def app(scope, receive, send):  # ASGI entry point
-    if scope["type"] == "lifespan":
-        return  # Handle lifespan events if needed
+async def start_server():
+    while True:  # Keep trying to restart if it crashes
+        try:
+            server = await websockets.serve(audio_handler, "0.0.0.0", 8000)
+            print("WebSocket server started on ws://0.0.0.0:8000")
+            await server.wait_closed()  # Wait until the server stops
+        except Exception as e:
+            print(f"WebSocket server crashed: {e}, restarting...")
+            await asyncio.sleep(3)  # Wait before restarting
 
+# Run WebSocket server in the background
+asyncio.create_task(start_server())
+
+async def app(scope, receive, send):
+    if scope["type"] == "lifespan":
+        return
     if scope["type"] == "websocket":
         websocket = websockets.WebSocketServerProtocol()
         await websocket.accept()
         await audio_handler(websocket, None)
-
-# Start WebSocket server in a separate task
-async def start_server():
-    server = await websockets.serve(audio_handler, "0.0.0.0", 8000)
-    print("WebSocket server started on ws://0.0.0.0:8000")
-    await server.wait_closed()
-
-# Run the WebSocket server in the background
-asyncio.create_task(start_server())
